@@ -23,29 +23,15 @@ def read_ser():
         return None
     
 def read_optical_flow_vector():
-    # Read 2 bytes (u and v components of optical flow)
-    data = ser.read(2)
-    if len(data) == 2:
-        u = int.from_bytes(data[0:1], byteorder='little', signed=True)
-        v = int.from_bytes(data[1:2], byteorder='little', signed=True)
+    # Read 4 bytes: 2 bytes for u and 2 bytes for v components of optical flow
+    data = ser.read(4)  # Expecting 4 bytes: 2 for u and 2 for v
+    if len(data) == 4:
+        u = int.from_bytes(data[0:2], byteorder='big', signed=True)
+        v = int.from_bytes(data[2:4], byteorder='big', signed=True)
         return u, v
     else:
-        print(f"Failed to read 2 bytes, received {len(data)} bytes.")
+        print(f"Failed to read 4 bytes, received {len(data)} bytes.")
         return None, None
-
-
-# Example usage:
-
-
-def compare_data(sent_data, received_data):
-    # Compare the two arrays and print the result
-    if np.array_equal(sent_data, received_data):
-        print("Sent and received data are the same.")
-    else:
-        print("Data mismatch!")
-        # Print the differences
-        diff = np.abs(sent_data - received_data)
-        print(f"Differences: {diff}")
 
 # Path to your video file
 src_path = os.path.join("src", "DashcamFootage.mp4")
@@ -57,7 +43,7 @@ ser = serial.Serial('COM5', 115200, timeout=5)
 
 frame_count = 0
 
-while frame_count < 2:  # Loop to send and compare up to 100 frames
+while frame_count < 2:  # Loop to send and compare up to 2 frames
     ret, frame = cap.read()
     if not ret:
         break
@@ -70,10 +56,18 @@ while frame_count < 2:  # Loop to send and compare up to 100 frames
     # Send the processed frame to ESP32
     send_frame_to_esp32(processed_frame)
 
-
+    # Wait to receive the optical flow after the frame is processed
 
     frame_count += 1
 
+# Close the serial port after processing is done
 u, v = read_optical_flow_vector()
+scaled_u = u / 10000
+scaled_v = v / 10000
+
 if u is not None and v is not None:
-    print(f"Optical flow at (8, 8): u={u}, v={v}")
+    print(f"Optical flow at (8, 8): u={scaled_u}, v={scaled_v}")
+else:
+    print("Failed to receive optical flow data.")
+
+ser.close()
