@@ -1,13 +1,18 @@
 import cv2
 import numpy as np
 import os
-import matplotlib.pyplot as plt
 
 # Function to preprocess the frame (convert to grayscale and resize)
 def preprocess_frame(frame):
+    # Convert to grayscale
     grayscale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    resized = cv2.resize(grayscale, (16, 16), interpolation=cv2.INTER_AREA)
-    return resized
+    
+    # Get the center 16x16 region of the grayscale frame
+    height, width = grayscale.shape
+    start_x = (width - 16) // 2
+    start_y = (height - 16) // 2
+    center_16x16 = grayscale[start_y:start_y + 16, start_x:start_x + 16]
+    return center_16x16
 
 # Path to your video file
 def validate(nameOfFile, datacount):
@@ -16,46 +21,45 @@ def validate(nameOfFile, datacount):
 
     cap = cv2.VideoCapture(src_path)
 
-
     # Initialize a list to store optical flow vectors over time
     flow_vectors = []
-    frame1 = None
-    # Loop over all frames in the video
+
+    # Read the first frame and preprocess it
+    ret, frame = cap.read()
+    if not ret:
+        raise ValueError("Cannot read the first frame from the video.")
+    frame1 = preprocess_frame(frame)
+
+    # Define the point at (8, 8) to track
+    point_to_track = np.array([[8, 8]], dtype=np.float32).reshape(-1, 1, 2)
+
+    # Loop over the frames in the video
     while frame_count < datacount:
         ret, frame = cap.read()
         if not ret:
             break  # Exit loop if no more frames
 
-        frame2 = np.array(preprocess_frame(frame), dtype=np.uint8)  # First 16x16 frame
-        # Calculate dense optical flow between frame1 and frame2
-        if frame1 is None:
-            frame1 = frame2
-            frame_count += 1
-            continue
-        flow = cv2.calcOpticalFlowFarneback(
-            frame1, frame2, None,
-            pyr_scale=0.5, levels=1, winsize=3, iterations=1, poly_n=5, poly_sigma=1.1, flags=0
+        frame2 = preprocess_frame(frame)
+
+        # Calculate optical flow using Lucas-Kanade method
+        next_points, status, _ = cv2.calcOpticalFlowPyrLK(
+            frame1, frame2, point_to_track, None, winSize=(5, 5), maxLevel=2,
         )
 
-        # Extract flow vector for coordinate (8, 8)
-        flow_at_8_8 = flow[8, 8]  # Flow vector at (8, 8)
-        vx, vy = flow_at_8_8  # Horizontal (x) and vertical (y) flow components
-        
-        vx = round(float(vx),4)
-        vy = round(float(vy),4)
+        # Check if the point was successfully tracked
+        if status[0][0] == 1:  # Point successfully tracked
+            vx, vy = next_points[0][0] - point_to_track[0][0]
+            vx = round(float(vx), 4)
+            vy = round(float(vy), 4)
+            flow_vectors.append((frame_count, vx, vy))
+        else:  # If the point is not tracked, append (0, 0)
+            flow_vectors.append((frame_count, 0, 0))
 
-        # Append frame count and flow components (vx, vy) to flow_vectors list
-        flow_vectors.append((frame_count, vx, vy))
-
-        # Read next frame and preprocess
-        
-        
-        processed_frame = preprocess_frame(frame)
-        frame1 = frame2  # Previous frame becomes current frame
-        frame2 = np.array(processed_frame, dtype=np.uint8)  # Update the second frame
+        # Update frame1 and point_to_track for the next iteration
+        frame1 = frame2
+        point_to_track = next_points
 
         frame_count += 1
 
     cap.release()
     return flow_vectors
-

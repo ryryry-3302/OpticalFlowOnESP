@@ -3,16 +3,25 @@ import os
 import serial
 import numpy as np
 
-# Used to process frame of video to grayscale and resize to 16x16
+# Used to process the center 16x16 region of the frame to grayscale
 def preprocess_frame(frame):
+    # Convert to grayscale
     grayscale = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    resized = cv2.resize(grayscale, (16, 16), interpolation=cv2.INTER_AREA)
-    return resized.flatten()  # Flatten to 256 elements (1D array)
+    
+    # Get the center 16x16 region of the grayscale frame
+    height, width = grayscale.shape
+    start_x = (width - 16) // 2
+    start_y = (height - 16) // 2
+    center_16x16 = grayscale[start_y:start_y + 16, start_x:start_x + 16]
+    blurred_center = cv2.GaussianBlur(center_16x16, (5, 5), 0)  # Kernel size (5, 5), you can adjust it
+    
+    # Flatten the 16x16 region to a 1D array and return it
+    return blurred_center.flatten()
 
 def send_frame_to_esp32(frame_data, ser):
     ser.write(frame_data.tobytes())  # Send the flattened data
 
-def read_ser():
+def read_ser(ser):
     # Read 256 bytes (the full 16x16 array data) from the serial port
     data = ser.read(256)  # Expecting exactly 256 bytes from ESP32
     if len(data) == 256:
@@ -30,7 +39,6 @@ def read_optical_flow_vector(ser):
     else:
         print(f"Failed to read 4 bytes, received {len(data)} bytes.")
         return None, None
-
 
 def processdata(videoname, datacount):
     # Path to your video file
@@ -60,8 +68,8 @@ def processdata(videoname, datacount):
             u, v = read_optical_flow_vector(ser)
             if u is not None and v is not None:
                 # Store the u, v values
-                scaled_u = u / 10000  # Scale the u component
-                scaled_v = v / 10000  # Scale the v component
+                scaled_u = u/100.0  # Scale the u component
+                scaled_v = v/100.0  # Scale the v component
                 flow_vectors.append((frame_count, scaled_u, scaled_v))
             else:
                 print("Failed to receive optical flow data.")
@@ -72,4 +80,3 @@ def processdata(videoname, datacount):
     cap.release()
     ser.close()
     return flow_vectors
-

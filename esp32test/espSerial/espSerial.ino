@@ -7,19 +7,92 @@ int dataCount = 0;  // Track the position in the array
 bool isFirstFrame = true;  // Toggle between the two frames
 
 // Scaling factor for the optical flow
-const float SCALE_FACTOR = 100000.0f;
-
-MotionEstContext me_ctx = {.method = LK_OPTICAL_FLOW,    // algorithm used
-                           .width  = 16,  .height = 16 // size of your image
-                           };
+const int SCALE_FACTOR = 100;
+static MotionEstContext* me_ctx = new MotionEstContext();
 
 
 
+// Gradient kernels
 
-void setup() {
-  Serial.begin(500000);  // Initialize serial communication
-  Serial.println("Ready to receive data...");
-  init_context(&me_ctx);
+
+// Convolution helper
+#include <Arduino.h>
+
+// Gradient kernels
+const float IxKernel[2][2] = {{-0.25, 0.25}, {-0.25, 0.25}};
+const float IyKernel[2][2] = {{-0.25, -0.25}, {0.25, 0.25}};
+const float ItKernel1[2][2] = {{0.25, 0.25}, {0.25, 0.25}};  // img1
+const float ItKernel2[2][2] = {{-0.25, -0.25}, {-0.25, -0.25}};  // img2
+
+// Convolution helper for 2x2 kernel
+float convolve2D(const uint8_t img[5][5], const float kernel[2][2], int x, int y) {
+    float sum = 0.0;
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+            sum += img[x + i][y + j] * kernel[i][j];
+        }
+    }
+    return sum;
+}
+
+// Optical flow calculation
+void calculateOpticalFlow( int x, int y) {
+    float Ix[5][5], Iy[5][5], It[5][5];
+    float A[2][2] = {0}, b[2] = {0};
+    const float SCALE_FACTOR = 100.0;
+
+    // Ensure x, y are valid for a 5x5 neighborhood
+    if (x < 2 || y < 2 || x > 13 || y > 13) {
+        Serial.println("Error: Coordinates out of bounds for a 5x5 neighborhood.");
+        return;
+    }
+
+    // Extract 5x5 window around (x, y)
+    uint8_t window1[5][5], window2[5][5];
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 5; j++) {
+            window1[i][j] = receivedData1[x - 2 + i][y - 2 + j];
+            window2[i][j] = receivedData2[x - 2 + i][y - 2 + j];
+        }
+    }
+
+    // Calculate gradients
+    for (int i = 0; i < 4; i++) {  // Gradient kernels are 2x2, so iterate only within valid range
+        for (int j = 0; j < 4; j++) {
+            Ix[i][j] = convolve2D(window1, IxKernel, i, j) + convolve2D(window2, IxKernel, i, j);
+            Iy[i][j] = convolve2D(window1, IyKernel, i, j) + convolve2D(window2, IyKernel, i, j);
+            It[i][j] = convolve2D(window2, ItKernel2, i, j) + convolve2D(window1, ItKernel1, i, j);
+        }
+    }
+
+    // Populate A and b
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            A[0][0] += Ix[i][j] * Ix[i][j];
+            A[0][1] += Ix[i][j] * Iy[i][j];
+            A[1][1] += Iy[i][j] * Iy[i][j];
+            b[0] += Ix[i][j] * It[i][j];
+            b[1] += Iy[i][j] * It[i][j];
+        }
+    }
+    A[1][0] = A[0][1];  // Symmetric matrix
+
+    // Solve for u, v
+    float u = 0.0, v = 0.0;
+    float det = A[0][0] * A[1][1] - A[0][1] * A[1][0];
+    if (det != 0) {
+        u = (A[1][1] * -b[0] - A[0][1] * -b[1]) / det;
+        v = (A[0][0] * -b[1] - A[0][1] * -b[0]) / det;
+    }
+
+    // Scale and send results over Serial
+    int scaled_u = (int)(u * SCALE_FACTOR);
+    int scaled_v = (int)(v * SCALE_FACTOR);
+
+    Serial.write((uint8_t)(scaled_u >> 8));  // High byte of u
+    Serial.write((uint8_t)(scaled_u & 0xFF));  // Low byte of u
+    Serial.write((uint8_t)(scaled_v >> 8));  // High byte of v
+    Serial.write((uint8_t)(scaled_v & 0xFF));  // Low byte of v
 }
 
 void computeOpticalFlowLK(int x, int y){
@@ -28,15 +101,15 @@ void computeOpticalFlowLK(int x, int y){
   uint8_t* img_cur = &receivedData2[0][0];   // Current frame
 
   // Call the motion_estimation function
-  bool success = motion_estimation(&me_ctx, img_prev, img_cur);
-  
+  int sum = 0;
+  bool success = motion_estimation(me_ctx, img_prev, img_cur);
+  MotionVector16_t *mv = me_ctx->mv_table[0] + 136;
   if (success) {
-    // Extract the motion vector from mv_table[0]
-    MotionVector16_t mv = *me_ctx.mv_table[0]; // Assuming the first element of mv_table holds the result
-
+    for(int i = 0; i < 16*16; i++, mv++) 
+        sum += (int) sqrtf(mv->mag2);
     // Scale the motion vector components (u and v) by the scaling factor
-    int scaled_u = (int)mv.vx;
-    int scaled_v = (int)mv.vy ;
+    int scaled_u = sum / (16*16);
+    int scaled_v = (int)mv->vy * SCALE_FACTOR;
     // Send the scaled optical flow vector
     Serial.write((uint8_t)(scaled_u >> 8));  // High byte of u
     Serial.write((uint8_t)(scaled_u & 0xFF));  // Low byte of u
@@ -118,8 +191,8 @@ void computeOpticalFlow(int x, int y) {
   float v;
 
   if (det == 0) {
-    u = -123;
-    v = -123;
+    u = 0;
+    v = 0;
   }
   
   else {
@@ -138,6 +211,18 @@ void computeOpticalFlow(int x, int y) {
   Serial.write((uint8_t)(scaled_v >> 8));  // High byte of v
   Serial.write((uint8_t)(scaled_v & 0xFF));  // Low byte of v
 }
+
+
+
+void setup() {
+  Serial.begin(500000);  // Initialize serial communication
+  Serial.println("Ready to receive data...");
+  init_context(me_ctx);
+  me_ctx->method = LK_OPTICAL_FLOW;            // algo used. LK_OPTICAL_FLOW; <- good too
+  me_ctx->width = 16;                         // image width
+  me_ctx->height = 16; 
+}
+
 
 void loop() {
   if (Serial.available() > 0) {
@@ -159,7 +244,7 @@ void loop() {
     if (dataCount >= ARRAY_SIZE) {
       if (!isFirstFrame) {
         // Compute optical flow for coordinate (8, 8)
-        computeOpticalFlowLK(8, 8);
+        computeOpticalFlow(8, 8);
         memcpy(receivedData1, receivedData2, sizeof(receivedData1));
       }
 
