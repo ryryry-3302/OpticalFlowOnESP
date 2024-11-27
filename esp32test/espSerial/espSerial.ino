@@ -1,4 +1,4 @@
-#include <motion.h>
+#include <Arduino.h>
 
 #define ARRAY_SIZE 256  // 16x16 = 256 bytes
 uint8_t receivedData1[16][16];  // First frame
@@ -8,7 +8,6 @@ bool isFirstFrame = true;  // Toggle between the two frames
 
 // Scaling factor for the optical flow
 const int SCALE_FACTOR = 100;
-static MotionEstContext* me_ctx = new MotionEstContext();
 
 
 
@@ -16,8 +15,10 @@ static MotionEstContext* me_ctx = new MotionEstContext();
 
 
 // Convolution helper
-#include <Arduino.h>
 
+
+/*
+ Archived trial methods
 // Gradient kernels
 const float IxKernel[2][2] = {{-0.25, 0.25}, {-0.25, 0.25}};
 const float IyKernel[2][2] = {{-0.25, -0.25}, {0.25, 0.25}};
@@ -147,6 +148,7 @@ void computeOpticalFlowSimple(int x, int y){
   Serial.write((uint8_t)(scaled_v >> 8));  // High byte of v
   Serial.write((uint8_t)(scaled_v & 0xFF));  // Low byte of v
 }
+*/
 
 void computeOpticalFlow(int x, int y) {
   // Gradients (float for precision)
@@ -217,10 +219,6 @@ void computeOpticalFlow(int x, int y) {
 void setup() {
   Serial.begin(500000);  // Initialize serial communication
   Serial.println("Ready to receive data...");
-  init_context(me_ctx);
-  me_ctx->method = LK_OPTICAL_FLOW;            // algo used. LK_OPTICAL_FLOW; <- good too
-  me_ctx->width = 16;                         // image width
-  me_ctx->height = 16; 
 }
 
 

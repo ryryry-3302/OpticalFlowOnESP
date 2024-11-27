@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def flowFarneback(videotitle,datacount):
+def flowFarneback(videotitle,datacount,showVid):
     # Open the video stream
     path = os.path.join("src", videotitle)
     cap = cv.VideoCapture(path)
@@ -28,9 +28,9 @@ def flowFarneback(videotitle,datacount):
     roi_bottom_right = (center[0] + window_size // 2, center[1] + window_size // 2)
 
     # List to store magnitudes at pixel (8, 8) of each frame
-    magnitudes_at_8_8 = []
+    magnitude_angle_at_8_8 =[]
     isFirst = True
-    while len(magnitudes_at_8_8) < datacount-5:
+    while len(magnitude_angle_at_8_8) < datacount-5:
         # Read the next frame
         ret, frame2 = cap.read()
         if not ret:
@@ -55,36 +55,37 @@ def flowFarneback(videotitle,datacount):
 
         # Get the magnitude at position (8,8) within the 8x8 region (corresponding to index (4,4) in the flow array)
         magnitude_at_8_8 = mag[4, 4]  # Since (8,8) is in the middle of the 8x8 window, it's at (4,4) in the array
+        angle_at_8_8 = ang[4, 4]  
         
         # Store the magnitude at (8, 8)
-        magnitudes_at_8_8.append(magnitude_at_8_8)
+        magnitude_angle_at_8_8.append((magnitude_at_8_8, angle_at_8_8))
+        if showVid:
+            # Optional: Visualization code to show optical flow
+            hsv_small = np.zeros((window_size, window_size, 3), dtype=np.uint8)
+            hsv_small[..., 0] = ang * 180 / np.pi / 2  # Angle as hue
+            hsv_small[..., 2] = cv.normalize(mag, None, 0, 255, cv.NORM_MINMAX)  # Magnitude as value
+            hsv_small[..., 1] = 255  # Full saturation
 
-        # Optional: Visualization code to show optical flow
-        hsv_small = np.zeros((window_size, window_size, 3), dtype=np.uint8)
-        hsv_small[..., 0] = ang * 180 / np.pi / 2  # Angle as hue
-        hsv_small[..., 2] = cv.normalize(mag, None, 0, 255, cv.NORM_MINMAX)  # Magnitude as value
-        hsv_small[..., 1] = 255  # Full saturation
+            # Convert HSV to BGR for visualization
+            hsv = np.zeros_like(frame2)
+            hsv[..., 1] = 255  # Set saturation to 255 for full saturation
+            hsv[roi_top_left[1]:roi_bottom_right[1], roi_top_left[0]:roi_bottom_right[0]] = hsv_small
+            bgr = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
 
-        # Convert HSV to BGR for visualization
-        hsv = np.zeros_like(frame2)
-        hsv[..., 1] = 255  # Set saturation to 255 for full saturation
-        hsv[roi_top_left[1]:roi_bottom_right[1], roi_top_left[0]:roi_bottom_right[0]] = hsv_small
-        bgr = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
+            # Overlay the optical flow visualization on the original frame
+            frame2_copy = frame2.copy()
+            frame2_copy[roi_top_left[1]:roi_bottom_right[1], roi_top_left[0]:roi_bottom_right[0]] = bgr[roi_top_left[1]:roi_bottom_right[1], roi_top_left[0]:roi_bottom_right[0]]
+            
+            # Display the result (optional)
+            cv.imshow('Optical Flow in 8x8 Window', frame2_copy)
 
-        # Overlay the optical flow visualization on the original frame
-        frame2_copy = frame2.copy()
-        frame2_copy[roi_top_left[1]:roi_bottom_right[1], roi_top_left[0]:roi_bottom_right[0]] = bgr[roi_top_left[1]:roi_bottom_right[1], roi_top_left[0]:roi_bottom_right[0]]
-        
-        # Display the result (optional)
-        cv.imshow('Optical Flow in 8x8 Window', frame2_copy)
-
-        # Wait for key press, exit on 'ESC' or save image on 's'
-        k = cv.waitKey(30) & 0xff
-        if k == 27:  # ESC key
-            break
-        elif k == ord('s'):  # 's' key to save image
-            cv.imwrite('opticalfb_window.png', next_frame)
-            cv.imwrite('opticalhsv_window.png', bgr)
+            # Wait for key press, exit on 'ESC' or save image on 's'
+            k = cv.waitKey(30) & 0xff
+            if k == 27:  # ESC key
+                break
+            elif k == ord('s'):  # 's' key to save image
+                cv.imwrite('opticalfb_window.png', next_frame)
+                cv.imwrite('opticalhsv_window.png', bgr)
 
         # Update previous frame for next iteration
         prvs = next_frame
@@ -92,4 +93,4 @@ def flowFarneback(videotitle,datacount):
     # Cleanup
     cap.release()
     cv.destroyAllWindows()
-    return magnitudes_at_8_8
+    return magnitude_angle_at_8_8
