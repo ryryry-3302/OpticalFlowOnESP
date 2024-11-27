@@ -18,4 +18,30 @@ pip install -r requirements.txt
 ```
 python main.py
 ```
+
 [Results](https://ryryry-3302.github.io/OpticalFlowOnESP/)
+
+# Overview of processing with esp
+1. #### preprocessing 
+- `preprocess.py` is used to extract 16 by 16 sector of interest using openCV
+- Converts from rgb to grayscale
+- Performs gaussian blur
+- flattens 2d array to be sent byte by byte over serial to esp32 for processing.
+2. #### esp32
+- Awaits receiving two frames of 256 bytes grayscale
+- Changes frames back into 2d arrays
+- Performs optical flow algorithm using a simplified version of lucas kanade calculating Ix Iy It for calculating of u and v using inverse matrix (if det == 0 return u and v = 0)
+- After calculating u and v sends back u and v values scaled up by 100 to have precision of up to 2.dp. Transmission is done over serial with each value being sent as a signed 16 bit int
+
+3. #### preprocessing.py
+- After successfully receiving u and v values or timing out host computer stores u v in a list of flowvectors as a tuple
+- Loops sending over and awaiting until all desired frames are processed
+
+# Validation with openCV
+- The same video feed and region of interest is processed using openCVFarneback algorithm
+- Each processed flow vector is appended to the original video over a HSV 16 by 16 box to evaluate whether openCV is able to correctly detect motion along with direction
+
+# Main.py
+- Runs both esp32 processing and openCV processing before plotting magnitude and angle values using matplotlib.
+- Moving average and median filter is used before plotting to make data more readable by reducing effect of noise
+

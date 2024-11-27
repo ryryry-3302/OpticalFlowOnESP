@@ -97,7 +97,7 @@ def main():
     """
     Main function to run the flow processing, filtering, and plotting.
     """
-    video_name = "DashcamFootage.mp4"
+    video_name = "test.mp4"
 
     # Step 1: Preprocess the video data
     magnitudeESP, magnitudeOpenCV, angleESP, angleOpenCV, min_length = preprocess_video_data(video_name, video=True)
